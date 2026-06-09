@@ -16,12 +16,17 @@ Runs 25 independent seeds and picks the best by **ipTM** (interface confidence s
 
 ## Install (local GPU)
 
-**Requirements:** Linux · Python 3.10+ · CUDA GPU ≥16 GB VRAM · ~27 GB disk
+**Requirements:** Linux · **Python 3.12 exactly** · CUDA GPU ≥16 GB VRAM · ~27 GB disk
 
 ```bash
 git clone git@github.com:mahdishafiei/esmfold2_relaxed.git
 cd esmfold2_relaxed/antibody_complex
 bash setup.sh
+```
+
+Verify setup works before running real jobs:
+```bash
+./fold.sh --test
 ```
 
 `setup.sh` creates a virtualenv, installs the package, installs `xformers` (required for numerical accuracy), and downloads the model weights (~26 GB) from HuggingFace automatically.
