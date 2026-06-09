@@ -98,49 +98,6 @@ Total residues (VH + VL + antigen) must be **≤ 768**. If over the limit:
 
 ---
 
-## Epitope constraints
-
-If you know the epitope, you can guide docking with a Chai-format CSV:
-
-```csv
-restraint_id,chainA,res_idxA,chainB,res_idxB,connection_type,confidence,...
-restraint0,B,Y32,C,R53,contact,1.0,...
-restraint1,A,I103,C,N273,contact,1.0,...
-```
-
-Chain A = heavy · Chain B = light · Chain C = antigen  
-Residue indices: 1-based sequential for antigen, Kabat/IMGT for antibody.
-
-Pass with `--contacts-csv yourfile.csv`.
-
----
-
-## Score interpretation
-
-| ipTM | Meaning |
-|---|---|
-| > 0.8 | Confident — trust the pose |
-| 0.5 – 0.8 | Plausible — inspect CDR contacts |
-| < 0.5 | Low confidence — try more seeds or add epitope constraints |
-
-**ipTM** = interface predicted TM-score (key metric for complex quality)  
-**pTM** = overall fold confidence  
-**pLDDT** = per-residue confidence (> 0.7 = well-folded region)
-
----
-
-## Weights
-
-Downloaded automatically by `setup.sh` into `antibody_complex/weights/`:
-
-| Folder | Size | Description |
-|---|---|---|
-| `ESMFold2-Fast/` | ~900 MB | 24-layer folding model (default) |
-| `ESMFold2/` | ~900 MB | 48-layer full model (`--full` flag) |
-| `ESMC-6B/` | ~25 GB | Shared language model backbone |
-
----
-
 ## Citation
 
 ```bibtex
