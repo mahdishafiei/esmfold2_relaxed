@@ -95,39 +95,31 @@ Get a token at [biohub.ai](https://biohub.ai). Free tier is 100 credits/day (~10
 
 ---
 
-## What else ESMFold2 can do
+## Other ESMFold2 capabilities for antibody-antigen prediction
 
-This repo is focused on antibody-antigen prediction, but the underlying model supports much more. All of the below are available through the [main repo](https://github.com/Biohub/esm) and the Biohub API.
+**Models:**
 
-**Molecule types supported in a single complex:**
-- Protein chains (standard + non-canonical amino acids via CCD codes)
-- RNA and DNA
-- Small molecule ligands (from SMILES or CCD)
-- Covalent bonds between any two atoms across chains
-
-**Models available:**
-
-| Model | Layers | MSA | Best for |
+| Model | Loops | MSA support | Notes |
 |---|---|---|---|
-| `ESMFold2-Fast` | 24 | No | Antibody-antigen, high-throughput screening |
-| `ESMFold2` | 48 | Yes (up to 16k seqs) | Protein-protein, protein-ligand with MSA |
-| `ESMC-300M/600M/6B` | — | No | Sequence representation, not folding |
-| `ESM3` (open) | — | No | Local generative model, sequence+structure+function |
+| `ESMFold2-Fast` | 24 | No | Used here — best ab-ag accuracy without MSA |
+| `ESMFold2` | 48 | Yes (up to 16k seqs) | Better with MSA; use `--full` flag |
 
-**Inference capabilities:**
-- **MSA conditioning** — provide homologous sequences per chain to boost accuracy (protein-protein: 70% → 76% DockQ pass rate)
-- **Pocket conditioning** — specify known contact residues on the target to guide docking
-- **Distogram conditioning** — provide pairwise distance constraints
-- **Inference-time scaling** — more seeds = better results (paper shows ~65% pass rate at 1000 seeds for ab-ag)
+**Additional inference options (available via the [Biohub API](https://github.com/Biohub/esm)):**
+- **MSA per chain** — provide homologous sequences to improve interface accuracy (ab-ag: 50% → 53% DockQ pass rate)
+- **Pocket conditioning** — specify known epitope residues to guide antibody docking (`--contacts-csv`)
+- **Distogram conditioning** — provide pairwise distance priors between residues
+- **More seeds** — pass rate keeps rising with seed count: 49% at 1 seed → ~62% at 25 → ~65% at 1000
+- **More loops** — `--loops 20` vs default 10 gives ~5% better ab-ag pass rate
 - **Multi-sample diffusion** — `num_diffusion_samples > 1` returns multiple structures per forward pass
 
-**Benchmarks from the paper (DockQ pass rate):**
+**Benchmarks (DockQ pass rate, from paper):**
 
-| Task | ESMFold2 (no MSA) | ESMFold2 (MSA) | AlphaFold3 (MSA) |
-|---|---|---|---|
-| Antibody-antigen | 50% | 53% | 47% |
-| Protein-protein | 70% | 76% | 59% |
-| Protein-ligand | 57% | — | — |
+| Mode | Pass rate vs AlphaFold3 (47% with MSA) |
+|---|---|
+| ESMFold2-Fast, no MSA | 50% |
+| ESMFold2, no MSA | 50% |
+| ESMFold2, with MSA | 53% |
+| ESMFold2, 20 loops + MSA | 55% |
 
 ---
 
