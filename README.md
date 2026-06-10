@@ -86,12 +86,48 @@ Get a token at [biohub.ai](https://biohub.ai). Free tier is 100 credits/day (~10
 
 | Setting | Value | Why |
 |---|---|---|
-| Model | ESMFold2-Fast | Same as Biohub Colab — produces correct structures for ab-ag |
-| Seeds | 25 | Paper shows pass rate rises from 49% (1 seed) → ~62% (25 seeds) |
-| Loops | 20 | Paper recommendation for antibody-antigen — ~5% better than 10 |
+| Model | ESMFold2-Fast | Same as Biohub Colab — best accuracy for ab-ag without MSA |
+| Seeds | 25 | Paper: pass rate rises from 49% (1 seed) → ~62% (25 seeds) |
+| Loops | 20 | Paper recommendation for ab-ag — ~5% better than 10 loops |
 | xformers | installed | Required for numerical equivalence to Biohub servers |
-| lm_dropout | 0.3 | Drives conformation diversity; paper inference default |
-| lm_mask_pct | 0.0 | Default for full + fast ESMFold2 model |
+| lm_dropout | 0.3 | Drives conformation diversity across seeds; paper default |
+| lm_mask_pct | 0.0 | Default for ESMFold2 and ESMFold2-Fast |
+
+---
+
+## What else ESMFold2 can do
+
+This repo is focused on antibody-antigen prediction, but the underlying model supports much more. All of the below are available through the [main repo](https://github.com/Biohub/esm) and the Biohub API.
+
+**Molecule types supported in a single complex:**
+- Protein chains (standard + non-canonical amino acids via CCD codes)
+- RNA and DNA
+- Small molecule ligands (from SMILES or CCD)
+- Covalent bonds between any two atoms across chains
+
+**Models available:**
+
+| Model | Layers | MSA | Best for |
+|---|---|---|---|
+| `ESMFold2-Fast` | 24 | No | Antibody-antigen, high-throughput screening |
+| `ESMFold2` | 48 | Yes (up to 16k seqs) | Protein-protein, protein-ligand with MSA |
+| `ESMC-300M/600M/6B` | — | No | Sequence representation, not folding |
+| `ESM3` (open) | — | No | Local generative model, sequence+structure+function |
+
+**Inference capabilities:**
+- **MSA conditioning** — provide homologous sequences per chain to boost accuracy (protein-protein: 70% → 76% DockQ pass rate)
+- **Pocket conditioning** — specify known contact residues on the target to guide docking
+- **Distogram conditioning** — provide pairwise distance constraints
+- **Inference-time scaling** — more seeds = better results (paper shows ~65% pass rate at 1000 seeds for ab-ag)
+- **Multi-sample diffusion** — `num_diffusion_samples > 1` returns multiple structures per forward pass
+
+**Benchmarks from the paper (DockQ pass rate):**
+
+| Task | ESMFold2 (no MSA) | ESMFold2 (MSA) | AlphaFold3 (MSA) |
+|---|---|---|---|
+| Antibody-antigen | 50% | 53% | 47% |
+| Protein-protein | 70% | 76% | 59% |
+| Protein-ligand | 57% | — | — |
 
 ---
 
