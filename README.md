@@ -29,7 +29,7 @@ Verify setup works before running real jobs:
 ./fold.sh --test
 ```
 
-`setup.sh` creates a virtualenv, installs the package, installs `xformers` (required for numerical accuracy), and downloads the model weights (~26 GB) from HuggingFace automatically.
+`setup.sh` creates a virtualenv, installs the package, builds `xformers` from source to match your torch/CUDA version (~15 min — PyPI wheels don't cover newer CUDA), and downloads the model weights (~26 GB) from HuggingFace automatically.
 
 ---
 
@@ -89,7 +89,7 @@ Get a token at [biohub.ai](https://biohub.ai). Free tier is 100 credits/day (~10
 | Model | ESMFold2-Fast | Same as Biohub Colab — best accuracy for ab-ag without MSA |
 | Seeds | 25 | Paper: pass rate rises from 49% (1 seed) → ~62% (25 seeds) |
 | Loops | 20 | Paper recommendation for ab-ag — ~5% better than 10 loops |
-| xformers | installed | Fused attention kernel — faster and matches Biohub servers numerically. Falls back to PyTorch attention if not available (results still correct) |
+| xformers | built from source | Must match your torch/CUDA version — `setup.sh` builds it automatically. Falls back to PyTorch attention if build fails (results still correct, slightly slower) |
 | lm_dropout | 0.3 | Drives conformation diversity across seeds; paper default |
 | lm_mask_pct | 0.0 | Default for ESMFold2 and ESMFold2-Fast |
 
