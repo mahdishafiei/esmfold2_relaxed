@@ -58,7 +58,13 @@ output/20260609_143022/
 
 ## Run on Colab (no GPU, requires Biohub API token)
 
+**Antibody-antigen notebook (this repo):**
+
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/mahdishafiei/esmfold2_relaxed/blob/main/antibody_complex/ESMFold2_Antibody_Antigen_Colab.ipynb)
+
+**Official ESMFold2 tutorial (Biohub):**
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Biohub/esm/blob/main/cookbook/tutorials/esmfold2.ipynb)
 
 Get a token at [biohub.ai](https://biohub.ai). Free tier is 100 credits/day (~100 single predictions). For high-throughput use, the local GPU option is better.
 
