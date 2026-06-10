@@ -113,6 +113,3 @@ Total residues (VH + VL + antigen) must be **≤ 768**. If over the limit:
 }
 ```
 
----
-
-*Mahdi Shafiei · Scripps Research Institute · [mahdishafiei18@gmail.com](mailto:mahdishafiei18@gmail.com)*
