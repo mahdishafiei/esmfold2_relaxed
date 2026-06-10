@@ -32,9 +32,11 @@ pip install --upgrade pip -q
 echo "[2/4] Installing ESM package and dependencies..."
 pip install -e "$REPO_DIR" -q
 
-# 3. Install xformers (required for numerical accuracy on GPU)
-echo "[3/4] Installing xformers..."
-pip install xformers -q
+# 3. Install xformers (fused attention kernel — builds from source to match your torch/CUDA)
+echo "[3/4] Building xformers from source (~15 min)..."
+TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0" MAX_JOBS=8 \
+  pip install --no-build-isolation git+https://github.com/facebookresearch/xformers.git@main -q || \
+  echo "  Warning: xformers source build failed — falling back to pip wheel (may not load CUDA kernels). Predictions still work."
 
 # 4. Download model weights
 echo "[4/4] Downloading model weights (~26 GB)..."
