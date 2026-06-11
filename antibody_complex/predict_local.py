@@ -57,6 +57,8 @@ def main():
     parser.add_argument("--heavy",       default=None)
     parser.add_argument("--light",       default=None)
     parser.add_argument("--antigen",     default=None)
+    parser.add_argument("--antigen2",    default=None,
+                        help="Second antigen chain (e.g. HA2 for a cleaved HA1+HA2 heterodimer)")
     parser.add_argument("--out",         default=None,
                         help="Path for best CIF (default: auto-named in output/)")
     parser.add_argument("--seeds",       type=int,   default=25)
@@ -72,6 +74,12 @@ def main():
     parser.add_argument("--weights-dir", default=WEIGHTS_DIR)
     parser.add_argument("--out-dir",     default="output/all_seeds",
                         help="Save all seed CIFs (default: output/all_seeds)")
+    parser.add_argument("--iptm-target", type=float, default=0.80,
+                        help="If best ipTM < this, auto-escalate loops (set 0 to disable)")
+    parser.add_argument("--escalate-loops", nargs="+", type=int, default=[48, 64],
+                        help="Loop counts to retry, in order, when the ipTM target is unmet")
+    parser.add_argument("--escalate-seeds", type=int, default=10,
+                        help="Seeds per escalation rung (default 10)")
 
     pocket_grp = parser.add_mutually_exclusive_group()
     pocket_grp.add_argument("--contacts", nargs="+", metavar="CHAIN:RESIDX")
@@ -89,7 +97,8 @@ def main():
                      f"Run the download first or set --weights-dir")
 
     provided = {k: v.strip() for k, v in
-                [("heavy", args.heavy), ("light", args.light), ("antigen", args.antigen)]
+                [("heavy", args.heavy), ("light", args.light),
+                 ("antigen", args.antigen), ("antigen2", args.antigen2)]
                 if v}
     if not provided:
         sys.exit("Provide at least one of --heavy / --light / --antigen.")
@@ -154,62 +163,93 @@ def main():
     seeds_dir = os.path.join(run_dir, "all_seeds")
     os.makedirs(seeds_dir, exist_ok=True)
 
-    # ── Run seeds ──────────────────────────────────────────────────────────
-    results = []
-    for seed in range(args.seeds):
-        print(f"Seed {seed+1:>3}/{args.seeds} ...", end=" ", flush=True)
-        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
-            result = builder.fold(
-                model,
-                inputs,
-                num_loops=args.loops,
-                num_sampling_steps=args.diff_steps,
-                lm_dropout=args.lm_dropout,
-                lm_mask_pct=args.lm_mask_pct if args.lm_mask_pct != 0.0 else None,
-                seed=seed,
-            )
-        iptm  = float(result.iptm) if result.iptm  is not None else 0.0
-        ptm   = float(result.ptm)  if result.ptm   is not None else 0.0
-        plddt = float(result.plddt.mean()) if result.plddt is not None else 0.0
-        print(f"ipTM={iptm:.3f}  pTM={ptm:.3f}  pLDDT={plddt:.3f}")
-        results.append((iptm, ptm, plddt, seed+1, result))
+    # ── Fold one "rung": N seeds at a given loop count ───────────────────────
+    def run_rung(num_loops, num_seeds, results):
+        for s in range(num_seeds):
+            print(f"  [loops={num_loops:>3}] seed {s+1:>3}/{num_seeds} ...",
+                  end=" ", flush=True)
+            with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+                result = builder.fold(
+                    model,
+                    inputs,
+                    num_loops=num_loops,
+                    num_sampling_steps=args.diff_steps,
+                    lm_dropout=args.lm_dropout,
+                    lm_mask_pct=args.lm_mask_pct if args.lm_mask_pct != 0.0 else None,
+                    seed=s,
+                )
+            iptm  = float(result.iptm) if result.iptm  is not None else 0.0
+            ptm   = float(result.ptm)  if result.ptm   is not None else 0.0
+            plddt = float(result.plddt.mean()) if result.plddt is not None else 0.0
+            print(f"ipTM={iptm:.3f}  pTM={ptm:.3f}  pLDDT={plddt:.3f}")
+            results.append((iptm, ptm, plddt, s+1, num_loops, result))
+            seed_path = os.path.join(seeds_dir, f"L{num_loops}_seed_{s+1:04d}.cif")
+            with open(seed_path, "w") as f:
+                f.write(result.complex.to_mmcif())
 
-        seed_path = os.path.join(seeds_dir, f"seed_{seed+1:04d}.cif")
-        with open(seed_path, "w") as f:
-            f.write(result.complex.to_mmcif())
+    # ── Run base rung, then auto-escalate loops if ipTM target is unmet ──────
+    target = args.iptm_target
+    if target > 0 and args.escalate_loops:
+        print(f"Auto-escalation ON: if best ipTM < {target:.2f}, retry at loops "
+              f"{args.escalate_loops} ({args.escalate_seeds} seeds each)\n")
+
+    results = []
+    print(f"── Rung 1: {args.seeds} seeds @ {args.loops} loops ──")
+    run_rung(args.loops, args.seeds, results)
+    best_iptm = max(r[0] for r in results)
+    print(f"  → best ipTM after rung 1: {best_iptm:.3f}")
+
+    rungs = [(args.loops, args.seeds)]
+    if target > 0:
+        for i, L in enumerate(args.escalate_loops, start=2):
+            if best_iptm >= target:
+                break
+            print(f"\nbest ipTM {best_iptm:.3f} < target {target:.2f} → escalating to {L} loops")
+            print(f"── Rung {i}: {args.escalate_seeds} seeds @ {L} loops ──")
+            run_rung(L, args.escalate_seeds, results)
+            best_iptm = max(r[0] for r in results)
+            rungs.append((L, args.escalate_seeds))
+            print(f"  → best ipTM after rung {i}: {best_iptm:.3f}")
+        if best_iptm >= target:
+            print(f"\n✓ Reached ipTM target {target:.2f}")
+        else:
+            print(f"\n⚠ Did not reach ipTM {target:.2f} after loops "
+                  f"{[L for L, _ in rungs]}; keeping overall best.")
 
     # ── Rank and save ──────────────────────────────────────────────────────
     results.sort(key=lambda x: x[0], reverse=True)
 
-    # Rename seed files to ranked names
-    for rank, (iptm, ptm, plddt, seed, _) in enumerate(results, 1):
-        src = os.path.join(seeds_dir, f"seed_{seed:04d}.cif")
-        dst = os.path.join(seeds_dir, f"rank{rank:02d}_seed{seed:02d}_ipTM{iptm:.3f}.cif")
+    # Rename seed files to ranked names (loop count kept in name)
+    for rank, (iptm, ptm, plddt, seed, loops, _) in enumerate(results, 1):
+        src = os.path.join(seeds_dir, f"L{loops}_seed_{seed:04d}.cif")
+        dst = os.path.join(seeds_dir,
+                           f"rank{rank:02d}_L{loops}_seed{seed:02d}_ipTM{iptm:.3f}.cif")
         os.rename(src, dst)
 
-    best_iptm, best_ptm, best_plddt, best_seed, best_result = results[0]
+    best_iptm, best_ptm, best_plddt, best_seed, best_loops, best_result = results[0]
 
     # Save best at top level of run dir
     best_path = args.out or os.path.join(
-        run_dir, f"best_seed{best_seed:02d}_ipTM{best_iptm:.3f}.cif"
+        run_dir, f"best_L{best_loops}_seed{best_seed:02d}_ipTM{best_iptm:.3f}.cif"
     )
     with open(best_path, "w") as f:
         f.write(best_result.complex.to_mmcif())
 
     # Write summary CSV
     with open(os.path.join(run_dir, "summary.csv"), "w") as f:
-        f.write("rank,seed,ipTM,pTM,pLDDT\n")
-        for rank, (iptm, ptm, plddt, seed, _) in enumerate(results, 1):
-            f.write(f"{rank},{seed},{iptm:.3f},{ptm:.3f},{plddt:.3f}\n")
+        f.write("rank,loops,seed,ipTM,pTM,pLDDT\n")
+        for rank, (iptm, ptm, plddt, seed, loops, _) in enumerate(results, 1):
+            f.write(f"{rank},{loops},{seed},{iptm:.3f},{ptm:.3f},{plddt:.3f}\n")
 
     iptm_vals = [round(r[0], 3) for r in results]
     print(f"\n{'='*55}")
     print(f"iPTM scores (ranked): {iptm_vals}")
-    print(f"Best  seed {best_seed:2d} — ipTM={best_iptm:.3f}  pTM={best_ptm:.3f}  pLDDT={best_plddt:.3f}")
+    print(f"Best — ipTM={best_iptm:.3f}  pTM={best_ptm:.3f}  pLDDT={best_plddt:.3f}  "
+          f"(seed {best_seed}, loops {best_loops})")
     print(f"\nRun saved to: {run_dir}/")
-    print(f"  best_seed{best_seed:02d}_ipTM{best_iptm:.3f}.cif  ← open this one")
+    print(f"  {os.path.basename(best_path)}  ← open this one")
     print(f"  summary.csv")
-    print(f"  all_seeds/  ({args.seeds} ranked CIFs)")
+    print(f"  all_seeds/  ({len(results)} ranked CIFs)")
 
 
 if __name__ == "__main__":

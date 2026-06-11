@@ -67,18 +67,28 @@ Get a token at [biohub.ai](https://biohub.ai). Free tier is 100 credits/day (~10
 ## All options
 
 ```
---heavy        VH amino acid sequence
---light        VL amino acid sequence (optional)
---antigen      Antigen amino acid sequence
---seeds        Number of seeds to run (default: 25)
---loops        Recurrent folding loops (default: 20)
---diff-steps   Diffusion sampling steps (default: 100)
---lm-dropout   LM dropout for seed diversity (default: 0.3)
---device       GPU to use, e.g. cuda:1 (default: cuda:0)
---full         Use full ESMFold2 (48 layers) instead of Fast (24 layers)
---contacts-csv Path to a Chai-format epitope constraint CSV
---out          Override output CIF path (default: auto-named)
+--heavy           VH amino acid sequence
+--light           VL amino acid sequence (optional)
+--antigen         Antigen sequence
+--antigen2        Second antigen chain (e.g. HA2 for a cleaved HA1+HA2 heterodimer)
+--seeds           Seeds to run (default: 25)
+--loops           Recurrent folding loops (default: 20)
+--diff-steps      Diffusion steps (default: 100)
+--lm-dropout      LM dropout for seed diversity (default: 0.3)
+--device          GPU to use, e.g. cuda:1 (default: cuda:0)
+--full            Use full ESMFold2 (48 layers) instead of Fast (24 layers)
+--contacts-csv    Path to a Chai-format epitope constraint CSV
+--out             Override output CIF path (default: auto-named)
+--iptm-target     Auto-escalate loops if best ipTM < this (default: 0.80, set 0 to disable)
+--escalate-loops  Loop counts to retry when target unmet (default: 48 64)
+--escalate-seeds  Seeds per escalation rung (default: 10)
 ```
+
+### Auto-escalation
+
+If the best ipTM after the main 25 seeds is below `--iptm-target` (default 0.80), the script automatically retries at higher loop counts (48 → 64) with 10 seeds each, stopping as soon as the target is met. The output `summary.csv` gains a `loops` column so you can see which rung produced the best result.
+
+Disable with `--iptm-target 0` if you know the target is a moderate-confidence binder and want to skip the extra compute.
 
 ---
 
@@ -92,6 +102,7 @@ Get a token at [biohub.ai](https://biohub.ai). Free tier is 100 credits/day (~10
 | xformers | built from source | Must match your torch/CUDA version — `setup.sh` builds it automatically. Falls back to PyTorch attention if build fails (results still correct, slightly slower) |
 | lm_dropout | 0.3 | Drives conformation diversity across seeds; paper default |
 | lm_mask_pct | 0.0 | Default for ESMFold2 and ESMFold2-Fast |
+| ipTM target | 0.80 | Auto-escalates to 48 → 64 loops if unmet |
 
 ---
 
