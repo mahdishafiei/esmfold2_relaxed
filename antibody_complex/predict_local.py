@@ -74,10 +74,12 @@ def main():
     parser.add_argument("--weights-dir", default=WEIGHTS_DIR)
     parser.add_argument("--out-dir",     default="output/all_seeds",
                         help="Save all seed CIFs (default: output/all_seeds)")
-    parser.add_argument("--iptm-target", type=float, default=0.80,
-                        help="If best ipTM < this, auto-escalate loops (set 0 to disable)")
+    parser.add_argument("--iptm-target", type=float, default=0.0,
+                        help="If >0 and best ipTM < this, auto-escalate loops. OFF by default: "
+                             "on the 8UME benchmark more loops (40/64) did NOT help, and ipTM is "
+                             "an unreliable target for ab-ag (see README score interpretation).")
     parser.add_argument("--escalate-loops", nargs="+", type=int, default=[48, 64],
-                        help="Loop counts to retry, in order, when the ipTM target is unmet")
+                        help="Loop counts to retry when --iptm-target is unmet (only if target>0)")
     parser.add_argument("--escalate-seeds", type=int, default=10,
                         help="Seeds per escalation rung (default 10)")
 
@@ -247,9 +249,12 @@ def main():
     print(f"Best — ipTM={best_iptm:.3f}  pTM={best_ptm:.3f}  pLDDT={best_plddt:.3f}  "
           f"(seed {best_seed}, loops {best_loops})")
     print(f"\nRun saved to: {run_dir}/")
-    print(f"  {os.path.basename(best_path)}  ← open this one")
+    print(f"  {os.path.basename(best_path)}  ← highest ipTM (see caveat below)")
     print(f"  summary.csv")
     print(f"  all_seeds/  ({len(results)} ranked CIFs)")
+    print(f"\n⚠ ipTM is a WEAK arbiter of ab-ag epitope correctness. If you have a native/")
+    print(f"  reference structure, re-rank all_seeds/ by DockQ vs native (see README).")
+    print(f"  Otherwise inspect the top poses for consistent CDR contacts across seeds.")
 
 
 if __name__ == "__main__":

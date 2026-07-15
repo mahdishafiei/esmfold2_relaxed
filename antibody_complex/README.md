@@ -95,25 +95,59 @@ Trim antibody constant regions and antigen fusion tags if needed.
 
 | Parameter | Value | Notes |
 |---|---|---|
-| Model | ESMFold2-Fast | 24-layer model — same as Biohub Colab default |
-| Seeds | 25 | Best by ipTM is saved |
-| Loops | 20 | Paper recommendation for ab-ag |
+| Model | ESMFold2-Fast | 24-layer model — same as Biohub Colab default. **Use Fast single-sequence first** — it beat full ESMFold2 + MSA + trimer on the 8UME benchmark (see below). |
+| Seeds | 25 | Every seed is saved to `all_seeds/`; **highly seed-dependent for ab-ag** (only ~1/2–1/3 of seeds find the right epitope). |
+| Loops | 20 | Paper recommendation for ab-ag. More loops (40/64) did **not** help on 8UME — don't auto-escalate loops chasing ipTM. |
 | Diffusion steps | 100 | |
 | lm_dropout | 0.3 | Drives conformation diversity across seeds |
+| MSA / trimer | off | Single-sequence, monomer antigen. Antigen MSA and HA-trimer both mis-docked 8UME (high ipTM, wrong epitope). |
 
 ---
 
-## Score interpretation
+## Score interpretation — read this before trusting ipTM
 
-| ipTM | Meaning |
+> **⚠️ ipTM is NOT a reliable arbiter of epitope correctness for antibody–antigen complexes.**
+> On the 8UME benchmark (validated against the deposited structure by DockQ), a pose with
+> **ipTM 0.71 docked at the completely wrong epitope (DockQ 0.008)**, while **correct docks had
+> ipTM as low as 0.31**. Full-model + antigen-MSA and HA-trimer runs reached ipTM 0.65–0.9 but
+> DockQ ≤ 0.09 (wrong site). **The single-sequence Fast model at ipTM 0.75 gave DockQ 0.936 (correct).**
+
+**What to actually do:**
+
+1. **If you have a native/reference structure** (benchmarking, close homolog): rank candidates by
+   **DockQ vs native**, *not* ipTM. Always run many seeds with every CIF saved, and DockQ each.
+   See `../../../../../scratch/esm_fold2_8ume/dockq_eval.py` for a working scorer (needs a
+   separate DockQ venv — numpy2/scipy≥1.14, conflicts with the folding env).
+2. **If you have NO native structure** (true prospective prediction): you lose the DockQ selector.
+   Fold many seeds, treat ipTM only as a weak prior, and **visually inspect the top poses** for
+   sane CDR-mediated contacts and epitope consistency across seeds (a pose that recurs across
+   independent seeds is more trustworthy than a single high-ipTM outlier).
+
+| ipTM | Loose reading (weak signal only) |
 |---|---|
-| > 0.8 | Confident — the predicted binding pose is reliable |
-| 0.5–0.8 | Plausible — inspect carefully, check CDR contacts |
-| < 0.5 | Low confidence — run more seeds or verify epitope constraints |
+| > 0.8 | *Usually* a correct dock — but not guaranteed (see the 8UME false positive) |
+| 0.5–0.8 | Ambiguous — inspect carefully; a correct pose can sit here or lower |
+| < 0.5 | Low ipTM does **not** mean wrong — some correct 8UME docks were ~0.31 |
 
-**ipTM** (interface predicted TM-score) is the key metric for complex quality.  
-**pTM** reflects individual chain fold confidence.  
-**pLDDT** > 0.7 indicates well-folded regions.
+**pTM** reflects individual chain fold confidence. **pLDDT** > 0.7 indicates well-folded regions.
+
+---
+
+## Lessons from the 8UME benchmark (validated)
+
+8UME = an anti-influenza-HA antibody Fv + HA ectodomain. ESMFold2-Fast reproduces the deposited
+interface at **DockQ 0.936** (right epitope + right fold). Full writeup and replication guide:
+`/home/jovyan/work/scratch/esm_fold2_8ume/` (`README.md`, `SOLUTION_8UME_REPLICATION.md`).
+
+**Winning recipe:** `ESMFold2-Fast`, single-sequence, Fv (VH+VL) + clean HA ectodomain (monomer,
+no tag), `--loops 20 --diff-steps 100 --lm-dropout 0.3`, scan 25 seeds, save all, select by DockQ.
+
+**Dead ends — do NOT repeat (all mis-dock this antibody or waste compute):**
+- Full `ESMFold2` (`--full`), single-seq or + antigen MSA → DockQ ~0.03, wrong epitope (~179 seeds).
+- HA **trimer** (3 antigen copies) → overall ipTM ~0.72 but Ab–Ag DockQ ≤ 0.09; also OOMs <80 GB.
+- More loops (40/64), higher lm_dropout, 16 diffusion samples, per-chain/paired H+L MSA,
+  full-547 tagged antigen → all neutral/worse, several OOM.
+- **Selecting by ipTM instead of DockQ → picks confidently-wrong poses.**
 
 ---
 
