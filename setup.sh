@@ -85,6 +85,7 @@ fi
 
 # --- 3. weights ---------------------------------------------------------------------
 export HF_HOME="$HF_TARGET"
+mkdir -p "$HF_TARGET"
 need_dl=0
 for m in ESMFold2-Fast ESMC-6B; do
   [ -d "$HF_TARGET/hub/models--biohub--$m" ] || need_dl=1
@@ -93,9 +94,15 @@ if [ "$need_dl" = 0 ]; then
   echo "[setup] weights present: $HF_TARGET"
 else
   echo "[setup] downloading weights -> $HF_TARGET (~26 GB, once) ..."
-  mkdir -p "$HF_TARGET"
   "$VENV/bin/hf" download biohub/ESMFold2-Fast     # the folding model the recipe uses
   "$VENV/bin/hf" download biohub/ESMC-6B           # its language-model backbone (~25 GB)
+fi
+# esm loads a CCD chemistry dictionary at fold time — one 178 MB file that lives in the
+# full ESMFold2 repo. Fetch it now, or the first prediction stalls on a download (and
+# fails outright on a compute node without internet).
+if ! ls "$HF_TARGET"/hub/models--biohub--ESMFold2/snapshots/*/ccd.pkl >/dev/null 2>&1; then
+  echo "[setup] fetching ccd.pkl (178 MB) ..."
+  "$VENV/bin/hf" download biohub/ESMFold2 ccd.pkl
 fi
 if [ "${EF2_FULL_MODEL:-0}" = 1 ]; then "$VENV/bin/hf" download biohub/ESMFold2; fi
 

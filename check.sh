@@ -25,6 +25,8 @@ done
 if [ -n "$H" ]; then
   echo "✅ weights   : $H"
   [ -d "$H/hub/models--biohub--ESMC-6B" ] || { echo "❌ ESMC-6B backbone missing under $H"; ok=0; }
+  ls "$H"/hub/models--biohub--ESMFold2/snapshots/*/ccd.pkl >/dev/null 2>&1 \
+    || echo "⚠️  ccd.pkl   : missing — the first fold will download 178 MB (fails with no internet; 'bash setup.sh' fetches it)"
 else
   echo "❌ weights   : biohub/ESMFold2-Fast not found in any cache"; ok=0
 fi
