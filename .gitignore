@@ -1,5 +1,23 @@
+# upstream
 esm.egg-info
-# pixi environments
 .pixi
 *.egg-info
 *.pyc
+__pycache__/
+
+# environments (built per machine by setup.sh)
+.venv/
+env/
+
+# weights (~26 GB, fetched by setup.sh)
+hf_cache/
+
+# prediction outputs
+runs/
+output/
+mutants/
+BEST_*.cif
+BEST_overall.csv
+
+# downloaded native structures used only for scoring
+validation/

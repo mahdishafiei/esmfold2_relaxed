@@ -1,8 +1,0 @@
-env/
-weights/
-output/
-__pycache__/
-*.pyc
-*.cif
-*.pdb
-*.log
