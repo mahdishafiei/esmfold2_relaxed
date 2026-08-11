@@ -31,7 +31,8 @@ Learned from a ~1500-run sweep scored against the deposited structure
    Rank by **ipSAE** (interface-restricted), and by **DockQ** against a reference when you have
    one. `fold.py` deliberately does not pick a winner by ipTM.
 3. **Scan seeds.** About **5 of 25 seeds** produce a high-quality dock. Fold all 25, keep every
-   structure, score each. One seed is a coin flip.
+   structure, score each. One seed is a coin flip — and *which* seeds win changes with the GPU,
+   so a good seed from someone else's run is worth nothing on yours.
 
 ---
 

@@ -97,6 +97,16 @@ python score.py targets/8ume/runs --ref validation/8ume.cif --mapping HLA:HLC
 ```
 
 `--mapping HLA:HLC` maps the model's H, L, A onto the native's H, L, C. Expect several seeds
-at `HA_dockq_vs_ref ≥ 0.80`. Diffusion is seeded, but exact per-seed numbers can drift a little
-with GPU model, driver, and dtype — the *distribution* (≈5 high-quality docks per 25 seeds) is
-the thing that reproduces, not a specific seed's third decimal.
+at `HA_dockq_vs_ref ≥ 0.80`.
+
+### Seeds do not transfer between machines
+
+The table above was produced on an A100. Re-running **seed 13 alone** on an L40S — same recipe,
+same code, same weights — gives a *wrong* dock (ipTM 0.30, `abag_ipsae` 0.00), while other seeds
+on that L40S reach `abag_ipsae` ~0.72 and DockQ ~0.94 against the reference. Sampling is
+deterministic per seed but only within one hardware/kernel stack; a different GPU, driver, or
+attention backend (xformers/flash-attn vs the pure-PyTorch fallback) reshuffles which seeds win.
+
+So: **never cherry-pick a "known good" seed from someone else's run.** What reproduces is the
+distribution — roughly 5 high-quality docks per 25 seeds — which is why the recipe folds 25
+seeds and ranks them, and why it saves every structure.
