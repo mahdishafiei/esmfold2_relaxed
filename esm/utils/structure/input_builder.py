@@ -33,6 +33,7 @@ class RNAInput:
     id: str | list[str]
     sequence: str
     modifications: list[Modification] | None = None
+    msa: MSAInput = None
 
 
 @dataclass
@@ -97,7 +98,7 @@ def serialize_structure_prediction_input(all_atom_input: StructurePredictionInpu
         elif seq_input.msa is None:
             chain_data["msa"] = None
         elif isinstance(seq_input.msa, MSA):
-            chain_data["msa"] = {"sequences": seq_input.msa.sequences}
+            chain_data["msa"] = seq_input.msa.state_dict(json_serializable=True)
         else:
             error_msg = f"MSA must be None or MSA. Got {seq_input.msa} instead."
             raise AttributeError(error_msg)
@@ -197,6 +198,7 @@ def deserialize_structure_prediction_input(
                     id=chain["id"],
                     sequence=chain["sequence"],
                     modifications=_mods(chain),
+                    msa=_msa(chain),
                 )
             )
         elif t == "dna":
