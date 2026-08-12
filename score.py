@@ -165,11 +165,10 @@ def epitope_of(cif, ab_chains=("H", "L"), ag_chain="A", cutoff=5.0):
 def add_consensus(runs, rows, min_jaccard=0.5, quiet=True):
     """How many *other* seeds put the antibody on the same epitope.
 
-    No single confidence score is a reliable arbiter here: on a 25-seed 8UME run the
-    top seed by both ipTM (0.825) and ipSAE (0.651) was docked 17.7 Å away at the wrong
-    site, while three correct docks scored ipSAE 0.000. What does separate them is
-    agreement: a pose 11 independent seeds reproduce is real, a confident singleton is
-    not. This needs no reference structure, so it works on novel designs too.
+    No confidence score reliably picks the right epitope: a wrong-site pose can top both
+    ipTM and ipSAE, and correct docks can score ipSAE 0.000. Agreement between independent
+    seeds does separate them — a pose many seeds reproduce is real, a confident singleton
+    usually is not. It needs no reference structure, so it also works on novel designs.
     """
     ag = "A"
     meta = next(iter(sorted(Path(runs).glob("*_meta.json"))), None)

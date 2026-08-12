@@ -1,41 +1,35 @@
 # esmfold2_relaxed
 
-**ESMFold2 antibody–antigen complex prediction, with the settings that actually work.**
+**ESMFold2 antibody–antigen complex prediction, preconfigured with settings that work.**
 
-A fork of [EvolutionaryScale's `esm`](https://github.com/Biohub/esm) whose defaults are a
-*validated recipe* rather than library defaults. On PDB **8UME** it reproduces the deposited
-antibody–antigen interface at **DockQ 0.936** — right epitope, right fold — from sequence
-alone: no MSA, no template, no epitope constraint.
-
-Clone it on any GPU box, run `setup.sh` once, and one command gives you 25 ranked structures
-plus a full score table. Nothing here needs an API key or credits.
+A fork of [EvolutionaryScale's `esm`](https://github.com/Biohub/esm) that ships a ready-to-run
+pipeline: give it a heavy chain, a light chain and an antigen, and it folds 25 seeds, scores
+every one, and hands you a ranked structure. Local GPU only — no API key, no credits.
 
 ```bash
 git clone git@github.com:mahdishafiei/esmfold2_relaxed.git && cd esmfold2_relaxed
-bash setup.sh                                        # once per machine (~26 GB weights)
-bash predict.sh --target targets/8ume --gpu 0        # fold + score, ~48 min on one L40S
-column -s, -t targets/8ume/runs/scores.csv | less -S
+bash setup.sh                                    # once per machine (~26 GB weights)
+
+mkdir -p targets/my_ab
+printf 'EVQLVESGGG...\n' > targets/my_ab/heavy.txt      # VH
+printf 'DIVMTQSPDS...\n' > targets/my_ab/light.txt      # VL (omit for a VHH/nanobody)
+printf 'MKTAYIAKQR...\n' > targets/my_ab/antigen.txt    # clean antigen, no tags
+
+bash predict.sh --target targets/my_ab --gpu 0   # ~48 min for 25 seeds on one L40S
+column -s, -t targets/my_ab/runs/scores.csv | less -S
 ```
 
 ---
 
-## The three rules the defaults encode
+## Why the defaults are what they are
 
-Learned from a ~1500-run sweep scored against the deposited structure
-([full evidence](docs/VALIDATION_8UME.md)):
-
-1. **Fast model, single sequence.** `biohub/ESMFold2-Fast` finds the right epitope. The full
-   `biohub/ESMFold2` — with or without an antigen MSA — and every trimeric-antigen setup dock
-   the antibody at the *wrong* site with confident-looking scores.
-2. **No confidence score picks the winner — agreement does.** A wrong dock hit **ipTM 0.71**
-   while correct docks sat at **ipTM 0.31**; on a 25-seed L40S run the top pose by *both* ipTM
-   (0.825) and ipSAE (0.651) was docked 17.7 Å away at the wrong site, and three correct docks
-   scored ipSAE 0.000. So the winner is the pose **the most seeds independently reproduce**
-   (`consensus_n`), with ipSAE as the tie-break — which needs no reference structure and so
-   works on novel designs. Ranked that way, all 11 correct docks of that run took ranks 1–12.
-3. **Scan seeds.** About **5 of 25 seeds** produce a high-quality dock. Fold all 25, keep every
-   structure, score each. One seed is a coin flip — and *which* seeds win changes with the GPU,
-   so a good seed from someone else's run is worth nothing on yours.
+1. **ESMFold2-Fast, single sequence.** For antibody–antigen the Fast model finds interfaces the
+   full 48-layer model misses; MSAs, trimeric antigens and epitope constraints are off.
+2. **Don't rank by ipTM.** ipTM does not track epitope correctness for Ab–Ag: a wrong-site pose
+   can score higher than a correct one. The pipeline never picks a winner by ipTM.
+3. **Scan seeds.** Only a fraction of seeds dock correctly, so the recipe folds 25, keeps every
+   structure, and ranks them. One seed is a coin flip, and *which* seeds win changes with the
+   GPU — a good seed from another machine's run is worth nothing on yours.
 
 ---
 
@@ -49,60 +43,33 @@ bash setup.sh     # fold venv + DockQ venv + weights; idempotent, re-run any tim
 bash check.sh     # says READY, or exactly what is missing
 ```
 
-`setup.sh` builds three things and skips whatever already exists:
-
 | | Where | Why |
 |---|---|---|
-| fold venv | `$HOME/.ef2_venv` | torch 2.13 + this repo's `esm` (the validated stack) |
+| fold venv | `$HOME/.ef2_venv` | torch + this repo's `esm` |
 | DockQ venv | `$HOME/.ef2_dockq_venv` | separate on purpose — DockQ pins `numpy<2`, `esm` needs `numpy≥2` |
-| weights | `$HOME/.ef2_hf_cache` | `biohub/ESMFold2-Fast` + `biohub/ESMC-6B`, ~26 GB, downloaded once |
+| weights | `$HOME/.ef2_hf_cache` | `ESMFold2-Fast` + `ESMC-6B` + the CCD dictionary, ~26 GB, once |
 
-Override any path by exporting `EF2_VENV_DIR`, `EF2_DOCKQ_VENV`, `EF2_HF_HOME` before running.
-On a multi-node cluster, keep **weights on shared storage** (point `EF2_HF_HOME` at them) and
-build **one venv per node** — a venv on network storage is painfully slow to import.
+Override paths with `EF2_VENV_DIR`, `EF2_DOCKQ_VENV`, `EF2_HF_HOME`. On a cluster, keep weights
+on shared storage and build one venv per node — a venv on network storage is slow to import.
 
-`predict.sh` activates everything for you. For interactive work, `source env.sh` once per shell
-(it exports `$EF2_PY` and `$EF2_DOCKQ`, and sets `HF_HOME`).
+`predict.sh` activates everything for you; for interactive work `source env.sh` once per shell.
 
 ---
 
 ## Predict
 
-A **target** is a directory with `heavy.txt`, `light.txt`, `antigen.txt` (see
-[`targets/README.md`](targets/README.md)):
+A **target** is a directory of sequences (see [`targets/README.md`](targets/README.md)). Or skip
+the directory:
 
 ```bash
-mkdir -p targets/my_ab
-printf 'EVQLVESGGG...\n' > targets/my_ab/heavy.txt      # VH only
-printf 'DIVMTQSPDS...\n' > targets/my_ab/light.txt      # VL only (omit for a VHH)
-printf 'DQICIGYHAN...\n' > targets/my_ab/antigen.txt    # clean ectodomain, no tags
-
-bash predict.sh --target targets/my_ab --gpu 0
+bash predict.sh --heavy EVQ... --light DIV... --antigen MKT... --tag my_ab --gpu 0
+bash predict.sh --fasta my_ab.fasta --gpu 1        # records named H / L / A
 ```
 
-or without a target directory:
+One complex per GPU, so four GPUs run four targets in parallel. Use `tmux` — a 25-seed run takes
+about 48 minutes.
 
-```bash
-bash predict.sh --heavy EVQ... --light DIV... --antigen DQI... --tag my_ab --gpu 0
-bash predict.sh --fasta my_ab.fasta --gpu 1             # records named H / L / A
-```
-
-Four GPUs means four complexes in parallel — one per `--gpu`. Run under `tmux` so a dropped
-connection doesn't kill a 48-minute job.
-
-### What you get
-
-```
-targets/my_ab/
-├── BEST_consensus11of25_ipsae0.525_seed6_my_ab_seed6_s0_iptm0.815.cif   ← the answer
-└── runs/
-    ├── scores.csv          every seed, best first (epitope consensus, ipSAE tie-break)
-    ├── results.csv         raw fold-time metrics + timings
-    ├── *_seed<N>_*.cif     all 25 structures
-    └── *_pae.npz, *_plddt.npz, *_meta.json    saved so any score can be recomputed
-```
-
-### The recipe (these are the defaults — changing them is the experiment)
+### The parameters
 
 | Parameter | Default | | Parameter | Default |
 |---|---|---|---|---|
@@ -111,66 +78,67 @@ targets/my_ab/
 | `--num_sampling_steps` | `100` | | `--num_seeds` | `25` (seeds 0–24) |
 | `--num_diffusion_samples` | `1` | | MSA / template / pocket | none |
 
-`python fold.py --help` lists everything else (MSA files, `--antigen_copies`, `--shard` across
-GPUs, `--lm_mask_pct`). Those knobs all made 8UME *worse* — see [dead ends](#dead-ends).
+Everything else is in `python fold.py --help`. The optional knobs — `--heavy_msa` /
+`--light_msa` / `--antigen_msa`, `--antigen_copies` (fold the antigen as an oligomer), `--full`
+model, more loops, `--lm_mask_pct`, `--shard` across GPUs — are off because they did not improve
+Ab–Ag accuracy in testing, and several cause OOM. Turn them on deliberately, not by default.
+
+### Output
+
+```
+targets/my_ab/
+├── BEST_consensus11of25_ipsae0.525_seed6_my_ab_seed6_s0_iptm0.815.cif   ← the answer
+└── runs/
+    ├── scores.csv          every seed, best first
+    ├── results.csv         fold-time metrics and timings
+    ├── *_seed<N>_*.cif     all 25 structures
+    └── *_pae.npz, *_plddt.npz, *_meta.json    so any score can be recomputed
+```
 
 ---
 
 ## Reading `scores.csv`
 
-Every seed is scored from its saved PAE, so scoring is reproducible and re-runnable without
-re-folding.
-
 | Column | Meaning |
 |---|---|
 | **`consensus_n`** | how many *other* seeds put the antibody on the same epitope — **the ranking metric** |
-| `epitope_n` | number of antigen residues within 5 Å of the antibody in this pose |
+| `epitope_n` | antigen residues within 5 Å of the antibody in this pose |
 | `iptm`, `ptm`, `plddt_mean` | ESMFold2's own global confidences |
 | `HA_iptm`, `LA_iptm` | interface ipTM, heavy→antigen and light→antigen |
 | **`abag_ipsae`** | `max(HA_ipsae, LA_ipsae)` — the tie-break *within* a consensus cluster |
 | `HA_ipsae`, `LA_ipsae`, `HL_ipsae` | ipSAE per chain pair (`HL` = the Fv's internal packing) |
 | `HA_pdockq`, `HA_pdockq2`, `HA_lis` (+ `LA_`, `HL_`) | pDockQ, pDockQ2, LIS per pair |
-| `HA_dockq_vs_ref`, `LA_dockq_vs_ref`, `abag_dockq_vs_ref` | DockQ vs `reference.cif`, if present |
+| `HA_dockq_vs_ref`, `LA_dockq_vs_ref`, `abag_dockq_vs_ref` | DockQ vs `reference.cif`, if you supply one |
 | `HA_irmsd`, `HA_lrmsd`, `HA_fnat` (+ `LA_`) | interface RMSD, ligand RMSD, native-contact fraction |
 
-**How to read them**
+- **`consensus_n`** — a pose many independent seeds reproduce is real; a confident singleton
+  usually isn't. With 25 seeds a winning cluster is typically 8–12. This needs no reference
+  structure, which is why it ranks.
+- **ipSAE** (0–1) — interface-restricted, stricter than ipTM. A genuine interface reads ~0.3–0.7
+  and no interface ~0, but it both over- and under-calls, so it orders poses *inside* a cluster
+  rather than choosing between clusters. `HL_ipsae` is ~0.8 even for a nonsense dock — that's
+  just the Fv folding.
+- **ipTM** (0–1) — informative, not decisive.
+- **pDockQ / pDockQ2** (0–1) — interface-quality predictors; **> ~0.23** suggests a real interface.
+- **LIS** (0–1) — local interaction score; higher = more confident contacts.
+- **DockQ vs ref** (0–1) — against a deposited native it is ground truth (**≥ 0.23** correct,
+  **≥ 0.49** medium, **≥ 0.80** high). Against your own WT prediction it measures how far a
+  mutant's pose moved: ≈1 unchanged, low + large `iRMSD` = the dock shifted.
 
-- **`consensus_n`** — the count of other seeds landing on the same epitope (Jaccard ≥ 0.5 on the
-  5 Å contact set). A big cluster is a real answer; a confident singleton is a hallucination with
-  good posture. With 25 seeds, a winning cluster is typically 8–12.
-- **ipSAE** (0–1) — interface-restricted and stricter than ipTM. A genuine Ab–Ag interface reads
-  **~0.3–0.7** and no interface reads ~0, but it both over- and under-calls: it ranked a
-  wrong-site pose first (0.651) and gave 0.000 to correct docks. Use it to order poses *inside*
-  a cluster. Don't confuse it with `HL_ipsae`, which is ~0.8 even when the dock is nonsense —
-  that's just the Fv folding correctly.
-- **ipTM** (0–1) — informative, not decisive. Correct docks here ranged 0.31–0.85, and wrong
-  docks reached 0.71–0.83.
-- **pDockQ / pDockQ2** (0–1) — interface quality predictors; **> ~0.23** suggests a real interface.
-- **LIS** (0–1) — local interaction score; higher means more confident local contacts.
-- **DockQ vs ref** (0–1) — against a *native* structure it is ground truth (**≥ 0.23** correct,
-  **≥ 0.49** medium, **≥ 0.80** high). Against your *WT prediction* it measures how far a mutant's
-  pose moved: ≈1 = unchanged, low + large `iRMSD` = the mutation shifted the dock.
-- **A wrong dock's fingerprint:** `abag_ipsae ≈ 0`, `abag_dockq_vs_ref ≈ 0.007`, `iRMSD` 15–18 Å,
-  while `HL_ipsae ≈ 0.8` — the Fv folds fine, it just binds the wrong place.
-
-Re-score any run directory at will (idempotent — it reads the saved PAE):
+Re-score any run directory at will — it reads the saved PAE, so nothing is re-folded:
 
 ```bash
 source env.sh
-python score.py <run_dir> [--ref structure.cif] [--mapping HLA:HLC] [--no_dockq]
+python score.py <run_dir> [--ref structure.cif] [--mapping HLA:HLC] [--rank ipsae] [--no_dockq]
 ```
 
 ### Picking the answer
 
-1. Take the top row of `scores.csv` — already ranked, and that structure is copied out as
-   `BEST_*.cif`. If ipSAE's favourite lost to a bigger cluster, `score.py` says so explicitly.
-2. Sanity-check it: a real dock sits in a cluster of many seeds and shows elevated
-   `HA_iptm`/`LA_iptm`. If the biggest cluster is 1–2 seeds, or the whole run tops out near
-   zero, don't trust any of it — either the mutation broke binding or the target needs more
-   seeds. Look at the top few poses in PyMOL before committing to one.
-3. If a native structure exists, score against it (`--ref native.cif --mapping HLA:HLC`) and use
-   **DockQ vs native** as ground truth. A novel design has no native — `abag_ipsae` plus DockQ
-   against the WT prediction is the substitute.
+1. Take the top row of `scores.csv`; that structure is copied out as `BEST_*.cif`. If ipSAE's
+   favourite lost to a bigger cluster, `score.py` says so explicitly.
+2. Sanity-check: a real dock sits in a large cluster with elevated `HA_iptm`/`LA_iptm`. If the
+   biggest cluster is 1–2 seeds, or everything is near zero, don't trust it — fold more seeds.
+3. Look at the top few poses in PyMOL before committing to one.
 
 ---
 
@@ -178,41 +146,14 @@ python score.py <run_dir> [--ref structure.cif] [--mapping HLA:HLC] [--no_dockq]
 
 ```bash
 source env.sh
-python make_mutant.py --target targets/8ume "H:Y57F+L:Q27Y"   # verifies the WT residue first
-bash targets/8ume/mutants/mut_H-Y57F_L-Q27Y/run.sh 0          # last arg = GPU index
-python best_overall.py targets/8ume                           # rank WT + every mutant
+python make_mutant.py --target targets/my_ab "H:Y57F+L:Q27Y"   # verifies the WT residue first
+bash targets/my_ab/mutants/mut_H-Y57F_L-Q27Y/run.sh 0          # last arg = GPU index
+python best_overall.py targets/my_ab                           # rank WT + every mutant
 ```
 
-Positions are 1-based on the target's own chain sequences. A WT-residue mismatch aborts, so a
-typo can't silently fold the wrong protein. Each mutant folder is a self-contained target whose
-`reference.cif` links back to the parent, so its `abag_dockq_vs_ref` answers *"did this mutation
-move the dock?"* — DockQ tolerates the substitutions via `--allowed_mismatches`.
-
----
-
-## Validate your install
-
-```bash
-bash predict.sh --target targets/8ume --gpu 0
-mkdir -p validation && curl -o validation/8ume.cif https://files.rcsb.org/download/8UME.cif
-python score.py targets/8ume/runs --ref validation/8ume.cif --mapping HLA:HLC
-```
-
-Expect several seeds at `HA_dockq_vs_ref ≥ 0.80` against the native structure. Full per-seed
-results and the reasoning behind every default: [`docs/VALIDATION_8UME.md`](docs/VALIDATION_8UME.md).
-
----
-
-## Dead ends
-
-Measured on 8UME, all worse than the defaults — don't spend GPU hours re-discovering them:
-
-- Full `biohub/ESMFold2`, with or without antigen MSA → DockQ ~0.03, wrong epitope (~179 seeds).
-- Antigen as a trimer → ipTM ~0.72 but Ab–Ag DockQ ≤ 0.09, and OOM under 80 GB.
-- More loops (40, 64), `lm_dropout 0.5`, 16 diffusion samples, per-chain or paired H+L MSA, the
-  full tagged antigen construct → neutral or worse, several OOM.
-- Escalating loops or seeds to chase a target ipTM → chases a metric that doesn't track
-  correctness here.
+Positions are 1-based on the target's own chain sequences; a WT mismatch aborts rather than
+folding the wrong protein. If the parent target has a `reference.cif`, each mutant links to it,
+so `abag_dockq_vs_ref` answers *"did this mutation move the dock?"*.
 
 ---
 
@@ -222,10 +163,10 @@ Measured on 8UME, all worse than the defaults — don't spend GPU hours re-disco
 |---|---|
 | `no fold venv on this machine` | `bash setup.sh` on *that* machine — venvs are node-local by design |
 | `weights not found` | `bash check.sh`; point `EF2_HF_HOME` at an existing cache, or re-run `setup.sh` |
-| No DockQ columns in `scores.csv` | DockQ venv missing (`setup.sh`) or no `--ref` given — ipSAE columns are unaffected |
-| Scoring didn't run after folding | it's wrapped so it can never kill a fold; just run `python score.py <run_dir>` |
-| CUDA OOM | one complex per GPU (~22 GB); trim to Fv + clean ectodomain (≤768 aa total); or `--shard` |
-| `transformer_engine` / `flash-attn` / `xformers` not installed | harmless — pure-PyTorch fallback, correct results, a little slower |
+| No DockQ columns | DockQ venv missing (`setup.sh`) or no `--ref` given; every other column is unaffected |
+| Scoring didn't run after folding | it can never kill a fold; just run `python score.py <run_dir>` |
+| CUDA OOM | one complex per GPU (~22 GB); keep total residues ≤ 768 (Fv + clean antigen); or `--shard` |
+| `transformer_engine` / `flash-attn` / `xformers` not installed | harmless — pure-PyTorch fallback, correct results, slightly slower |
 | Job dies when your laptop sleeps | run it under `tmux` |
 
 ---
@@ -235,25 +176,19 @@ Measured on 8UME, all worse than the defaults — don't spend GPU hours re-disco
 | Path | What |
 |---|---|
 | `setup.sh` / `env.sh` / `check.sh` | build the environment once · activate it · verify it |
-| `predict.sh` | fold + score in one command (wraps `env.sh` + `fold.py`) |
-| `fold.py` | the fold driver; validated recipe as defaults, saves every seed + PAE |
-| `score.py` | ipSAE / pDockQ / pDockQ2 / LIS + DockQ → `scores.csv`, `BEST_*.cif` |
-| `make_mutant.py` / `best_overall.py` | scaffold a mutant from a spec · rank WT + all mutants |
-| `targets/` | one directory per complex; `targets/8ume/` is the validation target |
+| `predict.sh` | fold + score in one command |
+| `fold.py` | fold driver; recipe as defaults, saves every seed + PAE |
+| `score.py` | consensus + ipSAE / pDockQ / pDockQ2 / LIS + DockQ → `scores.csv`, `BEST_*.cif` |
+| `make_mutant.py` / `best_overall.py` | scaffold a mutant · rank WT + all mutants |
+| `targets/` | one directory per complex (yours; gitignored outputs) |
 | `tools/ipsae.py` | vendored official Dunbrack ipSAE scorer |
-| `docs/VALIDATION_8UME.md` | the evidence: three rules, per-seed DockQ table, dead ends |
-| `esm/`, `cookbook/`, `pyproject.toml` | upstream EvolutionaryScale `esm`, unmodified |
-
-The `esm/` package is vendored from upstream at commit `ba4d712` — the exact snapshot the recipe
-was validated against — and is otherwise untouched. (The name *relaxed* is historical: this fork
-started as a patch relaxing MSA subsampling, which is upstream now.)
+| `esm/`, `pyproject.toml` | upstream EvolutionaryScale `esm`, unmodified (commit `ba4d712`) |
 
 ---
 
 ## References
 
-- **PDB 8UME** — https://www.rcsb.org/structure/8UME
-- **ESMFold2 / ESMC** — models `biohub/ESMFold2-Fast`, `biohub/ESMFold2`, `biohub/ESMC-6B`
+- **ESMFold2 / ESMC** — `biohub/ESMFold2-Fast`, `biohub/ESMFold2`, `biohub/ESMC-6B`
 - **ipSAE, pDockQ, pDockQ2, LIS** — see [`tools/README.md`](tools/README.md)
 - **DockQ** — Basu & Wallner — https://github.com/bjornwallner/DockQ
 
@@ -265,5 +200,3 @@ started as a patch relaxing MSA subsampling, which is upstream now.)
   year   = {2025}
 }
 ```
-
-Maintained by Mahdi Shafiei · Scripps Research · [mahdishafiei18@gmail.com](mailto:mahdishafiei18@gmail.com)

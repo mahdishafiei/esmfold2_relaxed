@@ -5,8 +5,8 @@ Scans <dir>/**/runs/scores.csv, takes each run's top row by abag_ipsae, ranks th
 writes <dir>/BEST_overall.csv with a best_cif column pointing at each run's BEST_*.cif.
 
 Usage:
-  python best_overall.py targets/8ume          # the WT run and every mutant of it
-  python best_overall.py targets/8ume/mutants  # mutants only
+  python best_overall.py targets/my_ab          # the WT run and every mutant of it
+  python best_overall.py targets/my_ab/mutants  # mutants only
 """
 import csv
 import sys

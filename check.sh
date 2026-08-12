@@ -48,7 +48,7 @@ fi
 
 echo
 if [ "$ok" = 1 ] && [ -n "$D" ]; then
-  echo "READY ✅  →  source env.sh   then   python fold.py --target targets/8ume --gpu 0"
+  echo "READY ✅  →  bash predict.sh --target <target dir> --gpu 0    (see targets/README.md)"
 elif [ "$ok" = 1 ]; then
   echo "MOSTLY READY  →  usable now; run 'bash setup.sh' to add the DockQ venv."
 else

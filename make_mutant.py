@@ -13,9 +13,9 @@ Creates <target>/mutants/mut_<...>/ containing:
     run.sh                                the validated recipe, one command
 
 Usage:
-    python make_mutant.py --target targets/8ume "H:Y57F+L:Q27Y"
-    python make_mutant.py --target targets/8ume "H:Y57F" --print-only
-    bash targets/8ume/mutants/mut_H-Y57F/run.sh 0        # fold it on GPU 0
+    python make_mutant.py --target targets/my_ab "H:Y57F+L:Q27Y"
+    python make_mutant.py --target targets/my_ab "H:Y57F" --print-only
+    bash targets/my_ab/mutants/mut_H-Y57F/run.sh 0        # fold it on GPU 0
 """
 import argparse
 import os

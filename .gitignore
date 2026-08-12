@@ -21,3 +21,4 @@ BEST_overall.csv
 
 # downloaded native structures used only for scoring
 validation/
+.ruff_cache/

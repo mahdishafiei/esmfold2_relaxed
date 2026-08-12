@@ -111,5 +111,5 @@ cat <<EOF
 [setup] done.
   source $REPO/env.sh
   bash $REPO/check.sh                      # confirm this machine is ready
-  bash $REPO/predict.sh --target $REPO/targets/8ume --gpu 0
+  bash $REPO/predict.sh --target <dir with heavy.txt/light.txt/antigen.txt> --gpu 0
 EOF

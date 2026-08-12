@@ -1,14 +1,13 @@
 #!/usr/bin/env python
 """Fold an antibody (H + L) + antigen complex with ESMFold2 — validated recipe by default.
 
-The defaults ARE the recipe that reproduces the deposited 8UME interface (DockQ 0.936):
-ESMFold2-Fast, single-sequence (no MSA, no template, no constraints), 20 loops,
-100 sampling steps, 1 diffusion sample, lm_dropout 0.3, fp32, seeds 0-24.
-So a bare `python fold.py --target <dir>` is already the right run.
+The defaults ARE the recipe: ESMFold2-Fast, single-sequence (no MSA, no template, no
+constraints), 20 loops, 100 sampling steps, 1 diffusion sample, lm_dropout 0.3, fp32,
+seeds 0-24. So a bare `python fold.py --target <dir>` is already the right run.
 
 Every seed is saved (CIF + PAE + pLDDT + meta), then score.py runs automatically and
-writes <out_dir>/scores.csv ranked by ipSAE — never by ipTM, which is a misleading
-objective for antibody-antigen docking (see README).
+writes <out_dir>/scores.csv, ranked by how many seeds agree on the epitope — never by
+ipTM, which does not track epitope correctness for antibody-antigen (see README).
 
 Input — pick one:
   --target DIR   directory holding heavy.txt / light.txt / antigen.txt
@@ -17,7 +16,7 @@ Input — pick one:
   --heavy S --light S --antigen S    raw sequences, or paths to files holding one
 
 Usage:
-  python fold.py --target targets/8ume --gpu 0
+  python fold.py --target targets/my_ab --gpu 0
   python fold.py --heavy EVQ... --light DIV... --antigen DQI... --tag myAb --gpu 1
 """
 import argparse
@@ -167,7 +166,7 @@ def main():
 
     g = ap.add_argument_group("recipe (defaults = the validated recipe; change at your own risk)")
     g.add_argument("--model", default="biohub/ESMFold2-Fast",
-                   help="biohub/ESMFold2-Fast (validated) | biohub/ESMFold2 (mis-docked 8UME)")
+                   help="biohub/ESMFold2-Fast (recommended for Ab-Ag) | biohub/ESMFold2 (48 layers)")
     g.add_argument("--num_loops", type=int, default=20)
     g.add_argument("--num_sampling_steps", type=int, default=100)
     g.add_argument("--num_diffusion_samples", type=int, default=1)
@@ -187,7 +186,7 @@ def main():
                    help="Shard the model across visible GPUs (device_map=auto) for large complexes")
     g.add_argument("--visible", default=None, help="CUDA_VISIBLE_DEVICES override, e.g. '2,3'")
 
-    g = ap.add_argument_group("optional conditioning (off by default — all hurt on 8UME)")
+    g = ap.add_argument_group("optional conditioning (off by default — none improved Ab-Ag accuracy)")
     g.add_argument("--heavy_msa", help="a3m MSA for the heavy chain")
     g.add_argument("--light_msa", help="a3m MSA for the light chain")
     g.add_argument("--antigen_msa", help="a3m MSA for the antigen chain")
