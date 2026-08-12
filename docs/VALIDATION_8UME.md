@@ -17,10 +17,11 @@ The full `biohub/ESMFold2` (with or without an antigen MSA) and every HA-trimer 
 antibody at the **wrong epitope** — high ipTM, DockQ 0.03–0.09, zero native contacts, over ~179
 seeds. Only `biohub/ESMFold2-Fast` finds the right site.
 
-**2. Do not rank by ipTM.**
+**2. Do not rank by a confidence score — rank by agreement between seeds.**
 For this target ipTM is actively misleading. A *wrong* dock reached **ipTM 0.71** (seed 5,
-DockQ 0.008) while *correct* docks sat at **ipTM ~0.31** (seeds 1, 7). Rank by structure-aware
-scores instead: ipSAE, or DockQ against a reference when you have one.
+DockQ 0.008) while *correct* docks sat at **ipTM ~0.31** (seeds 1, 7). ipSAE is better but not
+sufficient either — see §3b, where it put a wrong-site pose first. What works is the epitope a
+majority of independent seeds converge on, with ipSAE ordering poses inside that cluster.
 
 **3. It is seed-dependent — scan many seeds.**
 Of 14 DockQ-scored WT seeds, 7 docked correctly and 5 were high quality (DockQ ≥ 0.80): about
@@ -64,6 +65,33 @@ L40S ⇒ ~48 min for 25 seeds. One complex per GPU (~22 GB).
 Scope: 25 seeds folded, these 14 DockQ-scored (triage stopped once enough correct docks were
 found). High ipTM *usually* means a correct dock — seed 5 shows it is not a guarantee, and
 seeds 1 and 7 show correct docks can look unconfident.
+
+---
+
+## 3b. Why the winner is chosen by consensus (25 seeds, L40S, this code)
+
+A full 25-seed WT run through this repo, scored against `targets/8ume/reference.cif`
+(DockQ ≥ 0.80 = the same pose as the validated structure): **11/25 correct.**
+
+| rank by ipSAE | seed | ipTM | ipSAE | `consensus_n` | DockQ vs ref | |
+|---|---|---|---|---|---|---|
+| 1 | 15 | 0.825 | **0.651** | 1 | **0.007** (iRMSD 17.7 Å) | ← wrong site, top of both confidence scores |
+| 2 | 6 | 0.815 | 0.525 | 11 | 0.878 | correct |
+| 3 | 18 | 0.789 | 0.465 | 11 | 0.964 | correct |
+| … | 1 | 0.519 | **0.000** | 11 | 0.927 | correct, and ipSAE says no interface |
+| … | 10 | 0.493 | **0.000** | 11 | 0.852 | correct, ipSAE 0.000 |
+| … | 23 | 0.466 | **0.000** | 11 | 0.820 | correct, ipSAE 0.000 |
+
+So ipSAE both over-calls (a confident singleton at the wrong epitope) and under-calls (three
+correct docks at exactly 0.000). Eleven seeds, meanwhile, independently reproduce one pose and
+seed 15 stands alone at another.
+
+Ranking by `consensus_n` with ipSAE as the tie-break puts **all 11 correct docks in ranks 1–12**
+and drops every wrong-site pose below them. `score.py` does this by default once a run has ≥5
+seeds, computing each pose's epitope as the antigen residues within 5 Å of the antibody and
+counting seeds whose epitope overlaps it (Jaccard ≥ 0.5). It needs no reference structure, which
+is the point: on a novel design there is nothing to DockQ against. `--rank ipsae` restores the
+old pure-ipSAE ordering.
 
 ---
 

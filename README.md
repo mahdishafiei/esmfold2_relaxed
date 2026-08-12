@@ -27,9 +27,12 @@ Learned from a ~1500-run sweep scored against the deposited structure
 1. **Fast model, single sequence.** `biohub/ESMFold2-Fast` finds the right epitope. The full
    `biohub/ESMFold2` — with or without an antigen MSA — and every trimeric-antigen setup dock
    the antibody at the *wrong* site with confident-looking scores.
-2. **Never rank by ipTM.** A wrong dock hit **ipTM 0.71**; correct docks sat at **ipTM 0.31**.
-   Rank by **ipSAE** (interface-restricted), and by **DockQ** against a reference when you have
-   one. `fold.py` deliberately does not pick a winner by ipTM.
+2. **No confidence score picks the winner — agreement does.** A wrong dock hit **ipTM 0.71**
+   while correct docks sat at **ipTM 0.31**; on a 25-seed L40S run the top pose by *both* ipTM
+   (0.825) and ipSAE (0.651) was docked 17.7 Å away at the wrong site, and three correct docks
+   scored ipSAE 0.000. So the winner is the pose **the most seeds independently reproduce**
+   (`consensus_n`), with ipSAE as the tie-break — which needs no reference structure and so
+   works on novel designs. Ranked that way, all 11 correct docks of that run took ranks 1–12.
 3. **Scan seeds.** About **5 of 25 seeds** produce a high-quality dock. Fold all 25, keep every
    structure, score each. One seed is a coin flip — and *which* seeds win changes with the GPU,
    so a good seed from someone else's run is worth nothing on yours.
@@ -91,9 +94,9 @@ connection doesn't kill a 48-minute job.
 
 ```
 targets/my_ab/
-├── BEST_abag_ipsae0.612_seed13_my_ab_seed13_s0_iptm0.745.cif   ← the answer
+├── BEST_consensus11of25_ipsae0.525_seed6_my_ab_seed6_s0_iptm0.815.cif   ← the answer
 └── runs/
-    ├── scores.csv          every seed, ranked by abag_ipsae (best first)
+    ├── scores.csv          every seed, best first (epitope consensus, ipSAE tie-break)
     ├── results.csv         raw fold-time metrics + timings
     ├── *_seed<N>_*.cif     all 25 structures
     └── *_pae.npz, *_plddt.npz, *_meta.json    saved so any score can be recomputed
@@ -120,9 +123,11 @@ re-folding.
 
 | Column | Meaning |
 |---|---|
+| **`consensus_n`** | how many *other* seeds put the antibody on the same epitope — **the ranking metric** |
+| `epitope_n` | number of antigen residues within 5 Å of the antibody in this pose |
 | `iptm`, `ptm`, `plddt_mean` | ESMFold2's own global confidences |
 | `HA_iptm`, `LA_iptm` | interface ipTM, heavy→antigen and light→antigen |
-| **`abag_ipsae`** | `max(HA_ipsae, LA_ipsae)` — **the ranking metric**, rows are sorted by it |
+| **`abag_ipsae`** | `max(HA_ipsae, LA_ipsae)` — the tie-break *within* a consensus cluster |
 | `HA_ipsae`, `LA_ipsae`, `HL_ipsae` | ipSAE per chain pair (`HL` = the Fv's internal packing) |
 | `HA_pdockq`, `HA_pdockq2`, `HA_lis` (+ `LA_`, `HL_`) | pDockQ, pDockQ2, LIS per pair |
 | `HA_dockq_vs_ref`, `LA_dockq_vs_ref`, `abag_dockq_vs_ref` | DockQ vs `reference.cif`, if present |
@@ -130,11 +135,16 @@ re-folding.
 
 **How to read them**
 
+- **`consensus_n`** — the count of other seeds landing on the same epitope (Jaccard ≥ 0.5 on the
+  5 Å contact set). A big cluster is a real answer; a confident singleton is a hallucination with
+  good posture. With 25 seeds, a winning cluster is typically 8–12.
 - **ipSAE** (0–1) — interface-restricted and stricter than ipTM. A genuine Ab–Ag interface reads
-  **~0.3–0.7**; no interface reads ~0. This is the compass. Don't confuse it with `HL_ipsae`,
-  which is ~0.8 even when the antibody is docked in completely the wrong place.
-- **ipTM** (0–1) — informative, not decisive. Correct docks here ranged 0.31–0.85, and a wrong
-  dock reached 0.71.
+  **~0.3–0.7** and no interface reads ~0, but it both over- and under-calls: it ranked a
+  wrong-site pose first (0.651) and gave 0.000 to correct docks. Use it to order poses *inside*
+  a cluster. Don't confuse it with `HL_ipsae`, which is ~0.8 even when the dock is nonsense —
+  that's just the Fv folding correctly.
+- **ipTM** (0–1) — informative, not decisive. Correct docks here ranged 0.31–0.85, and wrong
+  docks reached 0.71–0.83.
 - **pDockQ / pDockQ2** (0–1) — interface quality predictors; **> ~0.23** suggests a real interface.
 - **LIS** (0–1) — local interaction score; higher means more confident local contacts.
 - **DockQ vs ref** (0–1) — against a *native* structure it is ground truth (**≥ 0.23** correct,
@@ -152,11 +162,12 @@ python score.py <run_dir> [--ref structure.cif] [--mapping HLA:HLC] [--no_dockq]
 
 ### Picking the answer
 
-1. Take the top row of `scores.csv` — it's already sorted by `abag_ipsae`, and that structure is
-   copied out as `BEST_*.cif`.
-2. Sanity-check it: a real dock also shows elevated `HA_iptm`/`LA_iptm` and `abag_dockq_vs_ref`
-   well above the wrong-dock floor (~0.007). If the whole run tops out near zero, either the
-   mutation broke binding or that target needs more seeds.
+1. Take the top row of `scores.csv` — already ranked, and that structure is copied out as
+   `BEST_*.cif`. If ipSAE's favourite lost to a bigger cluster, `score.py` says so explicitly.
+2. Sanity-check it: a real dock sits in a cluster of many seeds and shows elevated
+   `HA_iptm`/`LA_iptm`. If the biggest cluster is 1–2 seeds, or the whole run tops out near
+   zero, don't trust any of it — either the mutation broke binding or the target needs more
+   seeds. Look at the top few poses in PyMOL before committing to one.
 3. If a native structure exists, score against it (`--ref native.cif --mapping HLA:HLC`) and use
    **DockQ vs native** as ground truth. A novel design has no native — `abag_ipsae` plus DockQ
    against the WT prediction is the substitute.

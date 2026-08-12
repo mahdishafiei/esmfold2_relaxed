@@ -1,15 +1,18 @@
 #!/usr/bin/env python
-"""Score every prediction in a run directory and rank them — by ipSAE, not ipTM.
+"""Score every prediction in a run directory and rank them — by seed agreement, not by ipTM.
 
 For each prediction (one ``*_meta.json`` per seed, written by ``fold.py``) this collects
 one row of ``scores.csv``:
+
+  Epitope agreement, computed from the structures themselves
+    epitope_n, consensus_n                       <- consensus_n is the ranking metric
 
   ESMFold2 confidences (from ``*_meta.json``)
     iptm, ptm, plddt_mean, HA_iptm, LA_iptm      (HA/LA = per-chain-pair interface ipTM)
 
   PAE-derived, via the official Dunbrack ``tools/ipsae.py``, for pairs H-A, L-A, H-L
     ipSAE, pDockQ, pDockQ2, LIS
-    abag_ipsae = max(HA_ipsae, LA_ipsae)         <- the primary ranking metric
+    abag_ipsae = max(HA_ipsae, LA_ipsae)         <- the tie-break within a cluster
 
   DockQ vs a reference structure (optional, needs --ref and the DockQ binary)
     HA_dockq_vs_ref / _irmsd / _lrmsd / _fnat, same for LA, and abag_dockq_vs_ref
@@ -17,10 +20,10 @@ one row of ``scores.csv``:
     Reference = a deposited native -> ground-truth correctness (>=0.23 correct,
     >=0.49 medium, >=0.80 high); pass --mapping HLA:HLC etc. to match native chain ids.
 
-The top structure by ``abag_ipsae`` is copied out as ``BEST_abag_ipsae<val>_seed<N>_*.cif``.
+The winner is copied out as ``BEST_consensus<n>of<total>_ipsae<val>_seed<N>_*.cif``.
 
 Usage:
-  python score.py <run_dir> [--ref ref.cif] [--mapping HLA:HLA] [--no_dockq]
+  python score.py <run_dir> [--ref ref.cif] [--mapping HLA:HLA] [--rank ipsae] [--no_dockq]
 """
 import argparse
 import csv
@@ -144,6 +147,54 @@ def score_prediction(meta_path, ref, pae_cutoff, dist_cutoff, dockq_bin, mapping
     return row
 
 
+def epitope_of(cif, ab_chains=("H", "L"), ag_chain="A", cutoff=5.0):
+    """Antigen residues within `cutoff` Å of any antibody atom — the predicted epitope."""
+    import biotite.structure.io.pdbx as pdbx
+    import numpy as np
+    from scipy.spatial import cKDTree
+
+    arr = pdbx.get_structure(pdbx.CIFFile.read(str(cif)), model=1)
+    ab = arr[np.isin(arr.chain_id, list(ab_chains))]
+    ag = arr[arr.chain_id == ag_chain]
+    if len(ab) == 0 or len(ag) == 0:
+        return frozenset()
+    hits = cKDTree(ab.coord).query_ball_point(ag.coord, r=cutoff)
+    return frozenset(int(r) for r, h in zip(ag.res_id, hits) if h)
+
+
+def add_consensus(runs, rows, min_jaccard=0.5, quiet=True):
+    """How many *other* seeds put the antibody on the same epitope.
+
+    No single confidence score is a reliable arbiter here: on a 25-seed 8UME run the
+    top seed by both ipTM (0.825) and ipSAE (0.651) was docked 17.7 Å away at the wrong
+    site, while three correct docks scored ipSAE 0.000. What does separate them is
+    agreement: a pose 11 independent seeds reproduce is real, a confident singleton is
+    not. This needs no reference structure, so it works on novel designs too.
+    """
+    ag = "A"
+    meta = next(iter(sorted(Path(runs).glob("*_meta.json"))), None)
+    if meta:
+        order = json.load(open(meta)).get("chain_order") or []
+        ag = next((c for c in order if c.startswith("A")), "A")
+    try:
+        epitopes = {r["stem"]: epitope_of(Path(runs) / f"{r['stem']}.cif", ag_chain=ag)
+                    for r in rows}
+    except Exception as e:
+        sys.stderr.write(f"[score] epitope consensus unavailable ({e}); ranking by ipSAE only.\n")
+        return False
+    for r in rows:
+        a = epitopes[r["stem"]]
+        r["epitope_n"] = len(a)
+        r["consensus_n"] = sum(
+            1 for other, b in epitopes.items()
+            if other != r["stem"] and a and b and len(a & b) / len(a | b) >= min_jaccard)
+    if not quiet:
+        top = max(rows, key=lambda r: r["consensus_n"])
+        print(f"[score] epitope consensus: largest cluster = {top['consensus_n'] + 1}"
+              f"/{len(rows)} seeds")
+    return True
+
+
 def default_mapping(runs):
     """Model chains actually folded -> DockQ mapping (e.g. HLA:HLA, or HA:HA for a VHH)."""
     meta = next(iter(sorted(Path(runs).glob("*_meta.json"))), None)
@@ -156,12 +207,11 @@ def default_mapping(runs):
 
 
 def write_best(runs, rows):
-    """Copy the top structure by abag_ipsae to BEST_*.cif next to the run dir, so the
-    winner is obvious without opening scores.csv. Stale BEST_*.cif copies are removed."""
-    ranked = sorted(rows, key=lambda r: float(r.get("abag_ipsae", 0) or 0), reverse=True)
-    if not ranked:
+    """Copy the winner (rows[0] — they arrive already ranked) to BEST_*.cif next to the
+    run dir, so it's obvious without opening scores.csv. Stale copies are removed."""
+    if not rows:
         return None
-    top = ranked[0]
+    top = rows[0]
     src = Path(runs) / f"{top['stem']}.cif"
     if not src.exists():
         return None
@@ -172,7 +222,9 @@ def write_best(runs, rows):
         except OSError:
             pass
     val = float(top.get("abag_ipsae", 0) or 0)
-    dest = dest_dir / f"BEST_abag_ipsae{val:.3f}_seed{top.get('seed', '?')}_{top['stem']}.cif"
+    label = (f"consensus{top['consensus_n']}of{len(rows)}_ipsae{val:.3f}"
+             if top.get("consensus_n") not in (None, "") else f"abag_ipsae{val:.3f}")
+    dest = dest_dir / f"BEST_{label}_seed{top.get('seed', '?')}_{top['stem']}.cif"
     shutil.copy2(src, dest)
     return dest
 
@@ -187,6 +239,9 @@ def main():
                     help="DockQ chain mapping model:ref (default: HLA:HLA / HA:HA as folded)")
     ap.add_argument("--allowed_mismatches", type=int, default=20,
                     help="Sequence mismatches DockQ tolerates (point mutants vs the WT ref)")
+    ap.add_argument("--rank", choices=["auto", "consensus", "ipsae"], default="auto",
+                    help="auto: epitope consensus (ipSAE tie-break) once there are >=5 seeds; "
+                         "ipsae: rank by abag_ipsae alone")
     ap.add_argument("--pae_cutoff", type=float, default=10.0)
     ap.add_argument("--dist_cutoff", type=float, default=15.0)
     ap.add_argument("--dockq_bin", default=default_dockq())
@@ -249,7 +304,23 @@ def main():
 
     if not rows:
         sys.exit("No rows scored.")
-    rows.sort(key=lambda r: r.get("abag_ipsae", 0.0), reverse=True)
+
+    # Rank by how many seeds agree on the epitope, ipSAE as tie-break — a lone confident
+    # pose loses to one that eleven independent seeds reproduce. Needs enough seeds to
+    # mean anything; --rank ipsae restores pure ipSAE ordering.
+    have_consensus = add_consensus(runs, rows, quiet=args.quiet) if len(rows) > 1 else False
+    use_consensus = have_consensus and (args.rank == "consensus"
+                                        or (args.rank == "auto" and len(rows) >= 5))
+    by_ipsae = sorted(rows, key=lambda r: r.get("abag_ipsae", 0.0), reverse=True)
+    if use_consensus:
+        rows.sort(key=lambda r: (r["consensus_n"], r.get("abag_ipsae", 0.0)), reverse=True)
+        if rows[0]["stem"] != by_ipsae[0]["stem"]:
+            print(f"[score] NOTE: top by ipSAE is seed {by_ipsae[0]['seed']} but only "
+                  f"{by_ipsae[0]['consensus_n']}/{len(rows) - 1} other seeds agree with its "
+                  f"epitope — picked seed {rows[0]['seed']} instead "
+                  f"({rows[0]['consensus_n']}/{len(rows) - 1} agree).")
+    else:
+        rows[:] = by_ipsae
     cols = list(rows[0].keys())
     for r in rows:  # union of keys (DockQ columns may be absent)
         cols += [k for k in r if k not in cols]
@@ -257,7 +328,8 @@ def main():
         w = csv.DictWriter(fh, fieldnames=cols)
         w.writeheader()
         w.writerows(rows)
-    print(f"[score] wrote {len(rows)} rows -> {csv_path}  (ranked by abag_ipsae)")
+    basis = "epitope consensus, ipSAE tie-break" if use_consensus else "abag_ipsae"
+    print(f"[score] wrote {len(rows)} rows -> {csv_path}  (ranked by {basis})")
     best = write_best(runs, rows)
     if best:
         print(f"[score] BEST structure -> {best}")
